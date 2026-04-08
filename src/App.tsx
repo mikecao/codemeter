@@ -11,11 +11,8 @@ interface AllUsage {
   codex: ServiceResult;
 }
 
-function formatReset(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = d.getTime() - now.getTime();
+function formatCountdown(iso: string): string {
+  const diffMs = new Date(iso).getTime() - Date.now();
   if (diffMs <= 0) return "now";
   const mins = Math.floor(diffMs / 60_000);
   const hrs = Math.floor(mins / 60);
@@ -25,6 +22,16 @@ function formatReset(iso: string | null): string | null {
   if (days > 0) return `${days}d ${remainHrs}h`;
   if (hrs > 0) return `${hrs}h ${remainMins}m`;
   return `${mins}m`;
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function Bar({ percent }: { percent: number }) {
@@ -54,7 +61,10 @@ function Service({ name, result }: { name: string; result: ServiceResult }) {
             </div>
             <Bar percent={result.five_hour} />
             {result.five_hour_resets_at && (
-              <div className="resets">Resets in {formatReset(result.five_hour_resets_at)}</div>
+              <div className="resets">
+                <span>Resets in {formatCountdown(result.five_hour_resets_at)}</span>
+                <span>{formatDateTime(result.five_hour_resets_at)}</span>
+              </div>
             )}
           </div>
           <div className="metric">
@@ -64,7 +74,10 @@ function Service({ name, result }: { name: string; result: ServiceResult }) {
             </div>
             <Bar percent={result.weekly} />
             {result.weekly_resets_at && (
-              <div className="resets">Resets in {formatReset(result.weekly_resets_at)}</div>
+              <div className="resets">
+                <span>Resets in {formatCountdown(result.weekly_resets_at)}</span>
+                <span>{formatDateTime(result.weekly_resets_at)}</span>
+              </div>
             )}
           </div>
         </>
