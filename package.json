@@ -2,6 +2,8 @@
   "name": "codemeter",
   "private": true,
   "version": "0.1.0",
+  "author": "Mike Cao <mike@mikecao.com>",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
