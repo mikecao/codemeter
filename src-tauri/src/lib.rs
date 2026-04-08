@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
-    WindowEvent,
+    Manager, WindowEvent,
 };
 
 #[derive(Serialize, Clone)]
@@ -49,10 +50,7 @@ const CACHE_SECS: u64 = 300; // 5 minutes
 
 #[tauri::command]
 async fn get_usage(state: tauri::State<'_, AppState>) -> Result<AllUsage, ()> {
-    let (claude, codex) = tokio::join!(
-        fetch_claude_cached(&state),
-        fetch_codex_cached(&state)
-    );
+    let (claude, codex) = tokio::join!(fetch_claude_cached(&state), fetch_codex_cached(&state));
     Ok(AllUsage { claude, codex })
 }
 
@@ -96,18 +94,11 @@ async fn fetch_codex_cached(state: &AppState) -> ServiceResult {
 
 // --- Claude ---
 
-#[derive(Deserialize)]
 struct ClaudeCreds {
-    #[serde(rename = "claudeAiOauth")]
-    claude_ai_oauth: ClaudeOauth,
-}
-
-#[derive(Deserialize)]
-struct ClaudeOauth {
-    #[serde(rename = "accessToken")]
     access_token: String,
-    #[serde(rename = "refreshToken")]
     refresh_token: String,
+    raw: serde_json::Value,
+    storage: ClaudeCredsStorage,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +106,14 @@ struct ClaudeTokenResponse {
     access_token: String,
     refresh_token: String,
     expires_in: u64,
+}
+
+enum ClaudeCredsStorage {
+    File(std::path::PathBuf),
+    #[cfg(target_os = "macos")]
+    Keychain {
+        service: &'static str,
+    },
 }
 
 async fn refresh_claude_token(refresh_token: &str) -> Result<ClaudeTokenResponse, String> {
@@ -135,19 +134,123 @@ async fn refresh_claude_token(refresh_token: &str) -> Result<ClaudeTokenResponse
         .map_err(|e| e.to_string())
 }
 
-fn save_claude_creds(home: &std::path::Path, access_token: &str, refresh_token: &str, expires_in: u64) {
-    let creds_path = home.join(".claude").join(".credentials.json");
-    if let Ok(creds_str) = fs::read_to_string(&creds_path) {
-        if let Ok(mut creds) = serde_json::from_str::<serde_json::Value>(&creds_str) {
-            let expires_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
-                + expires_in * 1000;
-            creds["claudeAiOauth"]["accessToken"] = serde_json::json!(access_token);
-            creds["claudeAiOauth"]["refreshToken"] = serde_json::json!(refresh_token);
-            creds["claudeAiOauth"]["expiresAt"] = serde_json::json!(expires_at);
-            let _ = fs::write(&creds_path, serde_json::to_string(&creds).unwrap());
+fn claude_creds_paths(home: &std::path::Path) -> [std::path::PathBuf; 2] {
+    [
+        home.join(".claude").join(".credentials.json"),
+        home.join(".claude").join("credentials.json"),
+    ]
+}
+
+fn parse_claude_creds(raw: &str, storage: ClaudeCredsStorage) -> Result<ClaudeCreds, String> {
+    let creds = serde_json::from_str::<serde_json::Value>(raw).map_err(|e| e.to_string())?;
+    let oauth = creds["claudeAiOauth"]
+        .as_object()
+        .ok_or_else(|| "Missing claudeAiOauth".to_string())?;
+    let access_token = oauth["accessToken"]
+        .as_str()
+        .ok_or_else(|| "Missing access token".to_string())?
+        .to_string();
+    let refresh_token = oauth["refreshToken"]
+        .as_str()
+        .ok_or_else(|| "Missing refresh token".to_string())?
+        .to_string();
+
+    Ok(ClaudeCreds {
+        access_token,
+        refresh_token,
+        raw: creds,
+        storage,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn load_claude_creds_from_keychain() -> Option<ClaudeCreds> {
+    for service in ["Claude Code-credentials", "Claude Code"] {
+        let output = match Command::new("security")
+            .args(["find-generic-password", "-s", service, "-w"])
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => continue,
+        };
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if raw.is_empty() {
+            continue;
+        }
+
+        if let Ok(creds) = parse_claude_creds(&raw, ClaudeCredsStorage::Keychain { service }) {
+            return Some(creds);
+        }
+    }
+
+    None
+}
+
+fn load_claude_creds(home: &std::path::Path) -> Option<ClaudeCreds> {
+    #[cfg(target_os = "macos")]
+    if let Some(creds) = load_claude_creds_from_keychain() {
+        return Some(creds);
+    }
+
+    for path in claude_creds_paths(home) {
+        let raw = match fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+
+        if let Ok(creds) = parse_claude_creds(&raw, ClaudeCredsStorage::File(path)) {
+            return Some(creds);
+        }
+    }
+
+    None
+}
+
+fn save_claude_creds(
+    creds: &ClaudeCreds,
+    access_token: &str,
+    refresh_token: &str,
+    expires_in: u64,
+) {
+    let mut updated = creds.raw.clone();
+    let expires_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + expires_in * 1000;
+    updated["claudeAiOauth"]["accessToken"] = serde_json::json!(access_token);
+    updated["claudeAiOauth"]["refreshToken"] = serde_json::json!(refresh_token);
+    updated["claudeAiOauth"]["expiresAt"] = serde_json::json!(expires_at);
+
+    let serialized = match serde_json::to_string(&updated) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    match &creds.storage {
+        ClaudeCredsStorage::File(path) => {
+            let _ = fs::write(path, serialized);
+        }
+        #[cfg(target_os = "macos")]
+        ClaudeCredsStorage::Keychain { service } => {
+            let account = std::env::var("USER").unwrap_or_else(|_| "claude".into());
+            let _ = Command::new("security")
+                .args([
+                    "add-generic-password",
+                    "-U",
+                    "-a",
+                    &account,
+                    "-s",
+                    service,
+                    "-w",
+                    &serialized,
+                ])
+                .output();
         }
     }
 }
@@ -167,45 +270,67 @@ async fn claude_api_call(token: &str) -> Result<serde_json::Value, reqwest::Stat
         return Err(status);
     }
 
-    resp.json().await.map_err(|_| reqwest::StatusCode::INTERNAL_SERVER_ERROR)
+    resp.json()
+        .await
+        .map_err(|_| reqwest::StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn fetch_claude_usage() -> ServiceResult {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => return ServiceResult::Error { message: "Cannot find home directory".into() },
+        None => {
+            return ServiceResult::Error {
+                message: "Cannot find home directory".into(),
+            }
+        }
     };
 
-    let creds_path = home.join(".claude").join(".credentials.json");
-    let creds_str = match fs::read_to_string(&creds_path) {
-        Ok(s) => s,
-        Err(_) => return ServiceResult::NotLoggedIn { login_hint: "Run: claude login".into() },
-    };
-
-    let creds: ClaudeCreds = match serde_json::from_str(&creds_str) {
-        Ok(c) => c,
-        Err(_) => return ServiceResult::NotLoggedIn { login_hint: "Run: claude login".into() },
+    let creds = match load_claude_creds(&home) {
+        Some(creds) => creds,
+        None => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Run: claude login".into(),
+            }
+        }
     };
 
     // Try with current token
-    match claude_api_call(&creds.claude_ai_oauth.access_token).await {
+    match claude_api_call(&creds.access_token).await {
         Ok(body) => return ServiceResult::Ok(parse_claude_response(&body)),
-        Err(status) if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::TOO_MANY_REQUESTS => {
+        Err(status)
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS =>
+        {
             // Refresh and retry
         }
-        Err(e) => return ServiceResult::Error { message: format!("API error: {}", e) },
+        Err(e) => {
+            return ServiceResult::Error {
+                message: format!("API error: {}", e),
+            }
+        }
     }
 
     // Refresh token
-    let token_resp = match refresh_claude_token(&creds.claude_ai_oauth.refresh_token).await {
+    let token_resp = match refresh_claude_token(&creds.refresh_token).await {
         Ok(t) => t,
-        Err(_) => return ServiceResult::NotLoggedIn { login_hint: "Session expired. Run: claude login".into() },
+        Err(_) => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Session expired. Run: claude login".into(),
+            }
+        }
     };
-    save_claude_creds(&home, &token_resp.access_token, &token_resp.refresh_token, token_resp.expires_in);
+    save_claude_creds(
+        &creds,
+        &token_resp.access_token,
+        &token_resp.refresh_token,
+        token_resp.expires_in,
+    );
 
     match claude_api_call(&token_resp.access_token).await {
         Ok(body) => ServiceResult::Ok(parse_claude_response(&body)),
-        Err(e) => ServiceResult::Error { message: format!("API error: {}", e) },
+        Err(e) => ServiceResult::Error {
+            message: format!("API error: {}", e),
+        },
     }
 }
 
@@ -231,27 +356,47 @@ fn unix_to_iso(ts: u64) -> String {
 async fn fetch_codex_usage() -> ServiceResult {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => return ServiceResult::Error { message: "Cannot find home directory".into() },
+        None => {
+            return ServiceResult::Error {
+                message: "Cannot find home directory".into(),
+            }
+        }
     };
 
     let auth_path = home.join(".codex").join("auth.json");
     let auth_str = match fs::read_to_string(&auth_path) {
         Ok(s) => s,
-        Err(_) => return ServiceResult::NotLoggedIn { login_hint: "Run: codex --login".into() },
+        Err(_) => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Run: codex --login".into(),
+            }
+        }
     };
 
     let auth: serde_json::Value = match serde_json::from_str(&auth_str) {
         Ok(a) => a,
-        Err(_) => return ServiceResult::NotLoggedIn { login_hint: "Run: codex --login".into() },
+        Err(_) => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Run: codex --login".into(),
+            }
+        }
     };
 
     let token = match auth["tokens"]["access_token"].as_str() {
         Some(t) => t,
-        None => return ServiceResult::NotLoggedIn { login_hint: "Run: codex --login".into() },
+        None => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Run: codex --login".into(),
+            }
+        }
     };
     let account_id = match auth["tokens"]["account_id"].as_str() {
         Some(id) => id,
-        None => return ServiceResult::NotLoggedIn { login_hint: "Run: codex --login".into() },
+        None => {
+            return ServiceResult::NotLoggedIn {
+                login_hint: "Run: codex --login".into(),
+            }
+        }
     };
 
     let client = reqwest::Client::new();
@@ -263,16 +408,28 @@ async fn fetch_codex_usage() -> ServiceResult {
         .await
     {
         Ok(r) => r,
-        Err(e) => return ServiceResult::Error { message: format!("Request failed: {}", e) },
+        Err(e) => {
+            return ServiceResult::Error {
+                message: format!("Request failed: {}", e),
+            }
+        }
     };
 
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED || resp.status() == reqwest::StatusCode::FORBIDDEN {
-        return ServiceResult::NotLoggedIn { login_hint: "Session expired. Run: codex --login".into() };
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+        || resp.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        return ServiceResult::NotLoggedIn {
+            login_hint: "Session expired. Run: codex --login".into(),
+        };
     }
 
     let body: serde_json::Value = match resp.json().await {
         Ok(b) => b,
-        Err(e) => return ServiceResult::Error { message: format!("Invalid response: {}", e) },
+        Err(e) => {
+            return ServiceResult::Error {
+                message: format!("Invalid response: {}", e),
+            }
+        }
     };
 
     let five_hour_reset = body["rate_limit"]["primary_window"]["reset_at"]
@@ -335,7 +492,11 @@ pub fn run() {
                     }
                 })
                 .on_tray_icon_event(move |_tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         if win.is_visible().unwrap_or(false) {
                             let _ = win.hide();
                         } else {

@@ -38,7 +38,7 @@ Produces installers in `src-tauri/target/release/bundle/`.
 
 Codemeter reads your existing CLI credentials and queries the usage APIs directly:
 
-- **Claude Code**: Reads OAuth token from `~/.claude/.credentials.json`, calls the Anthropic usage API
+- **Claude Code**: Reads OAuth token from macOS Keychain when available, otherwise falls back to `~/.claude/.credentials.json` or `~/.claude/credentials.json`, then calls the Anthropic usage API
 - **Codex CLI**: Reads access token from `~/.codex/auth.json`, calls the OpenAI usage API
 
 No separate login required. If a CLI is not installed or not logged in, the app shows a helpful message.
