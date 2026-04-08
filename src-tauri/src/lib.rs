@@ -317,9 +317,8 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
             window.hide()?;
 
-            // Create system tray icon
-            let tray_icon = Image::from_path("icons/icon.png")
-                .or_else(|_| Image::from_path("public/icon.png"))?;
+            // Create system tray icon (embedded at compile time)
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
 
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
