@@ -2,13 +2,29 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type ServiceResult =
-  | { status: "ok"; five_hour: number; weekly: number }
+  | { status: "ok"; five_hour: number; five_hour_resets_at: string | null; weekly: number; weekly_resets_at: string | null }
   | { status: "not_logged_in"; login_hint: string }
   | { status: "error"; message: string };
 
 interface AllUsage {
   claude: ServiceResult;
   codex: ServiceResult;
+}
+
+function formatReset(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  if (diffMs <= 0) return "now";
+  const mins = Math.floor(diffMs / 60_000);
+  const hrs = Math.floor(mins / 60);
+  const remainMins = mins % 60;
+  const days = Math.floor(hrs / 24);
+  const remainHrs = hrs % 24;
+  if (days > 0) return `${days}d ${remainHrs}h`;
+  if (hrs > 0) return `${hrs}h ${remainMins}m`;
+  return `${mins}m`;
 }
 
 function Bar({ percent }: { percent: number }) {
@@ -37,6 +53,9 @@ function Service({ name, result }: { name: string; result: ServiceResult }) {
               <span>{Math.round(result.five_hour)}% used</span>
             </div>
             <Bar percent={result.five_hour} />
+            {result.five_hour_resets_at && (
+              <div className="resets">Resets in {formatReset(result.five_hour_resets_at)}</div>
+            )}
           </div>
           <div className="metric">
             <div className="metric-label">
@@ -44,6 +63,9 @@ function Service({ name, result }: { name: string; result: ServiceResult }) {
               <span>{Math.round(result.weekly)}% used</span>
             </div>
             <Bar percent={result.weekly} />
+            {result.weekly_resets_at && (
+              <div className="resets">Resets in {formatReset(result.weekly_resets_at)}</div>
+            )}
           </div>
         </>
       ) : result.status === "not_logged_in" ? (

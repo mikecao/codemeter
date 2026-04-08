@@ -13,6 +13,7 @@
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 .info-panel {
@@ -37,7 +38,7 @@ body {
 }
 
 .metric {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .metric:last-child {
@@ -62,6 +63,12 @@ body {
   height: 100%;
   border-radius: 3px;
   transition: width 0.3s ease;
+}
+
+.resets {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 3px;
 }
 
 .hint {

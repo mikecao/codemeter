@@ -13,7 +13,9 @@ use tauri::{
 #[derive(Serialize, Clone)]
 pub struct UsageData {
     five_hour: f64,
+    five_hour_resets_at: Option<String>,
     weekly: f64,
+    weekly_resets_at: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -210,8 +212,18 @@ async fn fetch_claude_usage() -> ServiceResult {
 fn parse_claude_response(body: &serde_json::Value) -> UsageData {
     UsageData {
         five_hour: body["five_hour"]["utilization"].as_f64().unwrap_or(0.0),
+        five_hour_resets_at: body["five_hour"]["resets_at"].as_str().map(String::from),
         weekly: body["seven_day"]["utilization"].as_f64().unwrap_or(0.0),
+        weekly_resets_at: body["seven_day"]["resets_at"].as_str().map(String::from),
     }
+}
+
+// --- Helpers ---
+
+fn unix_to_iso(ts: u64) -> String {
+    chrono::DateTime::from_timestamp(ts as i64, 0)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default()
 }
 
 // --- Codex ---
@@ -263,13 +275,22 @@ async fn fetch_codex_usage() -> ServiceResult {
         Err(e) => return ServiceResult::Error { message: format!("Invalid response: {}", e) },
     };
 
+    let five_hour_reset = body["rate_limit"]["primary_window"]["reset_at"]
+        .as_u64()
+        .map(unix_to_iso);
+    let weekly_reset = body["rate_limit"]["secondary_window"]["reset_at"]
+        .as_u64()
+        .map(unix_to_iso);
+
     ServiceResult::Ok(UsageData {
         five_hour: body["rate_limit"]["primary_window"]["used_percent"]
             .as_f64()
             .unwrap_or(0.0),
+        five_hour_resets_at: five_hour_reset,
         weekly: body["rate_limit"]["secondary_window"]["used_percent"]
             .as_f64()
             .unwrap_or(0.0),
+        weekly_resets_at: weekly_reset,
     })
 }
 
