@@ -8,7 +8,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Manager, PhysicalPosition, PhysicalSize, Rect, WindowEvent,
 };
 
 #[derive(Serialize, Clone)]
@@ -351,6 +351,83 @@ fn unix_to_iso(ts: u64) -> String {
         .unwrap_or_default()
 }
 
+fn position_window_near_tray(window: &tauri::WebviewWindow, tray_rect: &Rect) {
+    let window_size = window
+        .outer_size()
+        .unwrap_or_else(|_| PhysicalSize::new(400, 380));
+    let tray_position = tray_rect.position.to_physical::<f64>(1.0);
+    let tray_size = tray_rect.size.to_physical::<u32>(1.0);
+
+    let monitor = window
+        .monitor_from_point(tray_position.x, tray_position.y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        let x = (tray_position.x - (window_size.width as f64 / 2.0)).round() as i32;
+        let y = tray_position.y.round() as i32 + tray_size.height as i32 + 8;
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let work_x = work_area.position.x;
+    let work_y = work_area.position.y;
+    let work_width = work_area.size.width as i32;
+    let work_height = work_area.size.height as i32;
+    let window_width = window_size.width as i32;
+    let window_height = window_size.height as i32;
+    let padding = 8;
+
+    let icon_center_x = tray_position.x + (tray_size.width as f64 / 2.0);
+    let icon_center_y = tray_position.y + (tray_size.height as f64 / 2.0);
+    let work_center_y = work_y as f64 + (work_height as f64 / 2.0);
+
+    let mut x = (icon_center_x - (window_width as f64 / 2.0)).round() as i32;
+    let mut y = if icon_center_y <= work_center_y {
+        (tray_position.y + tray_size.height as f64).round() as i32 + padding
+    } else {
+        tray_position.y.round() as i32 - window_height - padding
+    };
+
+    let min_x = work_x + padding;
+    let max_x = work_x + work_width - window_width - padding;
+    let min_y = work_y + padding;
+    let max_y = work_y + work_height - window_height - padding;
+
+    x = if max_x < min_x {
+        work_x
+    } else {
+        x.clamp(min_x, max_x)
+    };
+
+    y = if max_y < min_y {
+        work_y
+    } else {
+        y.clamp(min_y, max_y)
+    };
+
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+#[cfg(target_os = "macos")]
+fn set_popup_space_visibility_webview(window: &tauri::WebviewWindow, visible: bool) {
+    let _ = window.set_visible_on_all_workspaces(visible);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_popup_space_visibility_webview(_window: &tauri::WebviewWindow, _visible: bool) {}
+
+#[cfg(target_os = "macos")]
+fn set_popup_space_visibility_window(window: &tauri::Window, visible: bool) {
+    let _ = window.set_visible_on_all_workspaces(visible);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_popup_space_visibility_window(_window: &tauri::Window, _visible: bool) {}
+
 // --- Codex ---
 
 async fn fetch_codex_usage() -> ServiceResult {
@@ -493,13 +570,17 @@ pub fn run() {
                 })
                 .on_tray_icon_event(move |_tray, event| {
                     if let tauri::tray::TrayIconEvent::Click {
+                        rect,
                         button_state: tauri::tray::MouseButtonState::Up,
                         ..
                     } = event
                     {
                         if win.is_visible().unwrap_or(false) {
                             let _ = win.hide();
+                            set_popup_space_visibility_webview(&win, false);
                         } else {
+                            set_popup_space_visibility_webview(&win, true);
+                            position_window_near_tray(&win, &rect);
                             let _ = win.show();
                             let _ = win.set_focus();
                         }
@@ -513,6 +594,10 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                set_popup_space_visibility_window(window, false);
+            } else if let WindowEvent::Focused(false) = event {
+                let _ = window.hide();
+                set_popup_space_visibility_window(window, false);
             }
         })
         .run(tauri::generate_context!())
