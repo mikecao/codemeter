@@ -1,6 +1,6 @@
 [package]
 name = "codemeter"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Tauri desktop app for codemeter"
 authors = ["you"]
 license = ""
@@ -27,4 +27,3 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 chrono = "0.4"
-
