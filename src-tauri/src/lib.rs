@@ -571,6 +571,7 @@ pub fn run() {
                 .on_tray_icon_event(move |_tray, event| {
                     if let tauri::tray::TrayIconEvent::Click {
                         rect,
+                        button: tauri::tray::MouseButton::Left,
                         button_state: tauri::tray::MouseButtonState::Up,
                         ..
                     } = event
@@ -595,9 +596,11 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
                 set_popup_space_visibility_window(window, false);
-            } else if let WindowEvent::Focused(false) = event {
-                let _ = window.hide();
-                set_popup_space_visibility_window(window, false);
+            } else if cfg!(target_os = "macos") {
+                if let WindowEvent::Focused(false) = event {
+                    let _ = window.hide();
+                    set_popup_space_visibility_window(window, false);
+                }
             }
         })
         .run(tauri::generate_context!())
