@@ -13,11 +13,16 @@ A lightweight desktop app that tracks your AI coding tool usage limits. Lives in
 - Auto-refreshes every 60 seconds with 5-minute API caching
 - Automatic OAuth token refresh for Claude Code
 
-## Prerequisites
+## Runtime prerequisites
+
+The compiled app does not require Rust, Node.js, pnpm, or the Tauri CLI.
+
+- Logged into [Claude Code](https://github.com/anthropics/claude-code) (`claude login`) and/or [Codex CLI](https://github.com/openai/codex) (`codex --login`)
+
+## Development prerequisites
 
 - [Rust](https://rustup.rs/)
 - [Node.js](https://nodejs.org/) and [pnpm](https://pnpm.io/)
-- Logged into [Claude Code](https://github.com/anthropics/claude-code) (`claude login`) and/or [Codex CLI](https://github.com/openai/codex) (`codex --login`)
 
 ## Development
 
