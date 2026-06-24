@@ -17,6 +17,20 @@ A lightweight desktop app that tracks your AI coding tool usage limits. Lives in
 
 - Logged into [Claude Code](https://github.com/anthropics/claude-code) (`claude login`) and/or [Codex CLI](https://github.com/openai/codex) (`codex --login`)
 
+## Installation
+
+Download the latest installer for your platform from the [releases page](https://github.com/mikecao/codemeter/releases).
+
+### macOS
+
+The macOS build is unsigned, so the first launch may show a "codemeter is damaged and can't be opened" warning. This is expected for unsigned apps — clear the quarantine flag after moving the app to `/Applications`:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/codemeter.app
+```
+
+Then open it normally.
+
 ## Development prerequisites
 
 - [Rust](https://rustup.rs/)
