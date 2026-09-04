@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+interface UsageWindow {
+  label: string;
+  percent: number;
+  resets_at: string | null;
+}
+
 type ServiceResult =
-  | { status: "ok"; five_hour: number; five_hour_resets_at: string | null; weekly: number; weekly_resets_at: string | null }
+  | { status: "ok"; windows: UsageWindow[] }
   | { status: "not_logged_in"; login_hint: string }
   | { status: "error"; message: string };
 
 interface AllUsage {
   claude: ServiceResult;
   codex: ServiceResult;
+  opencode: ServiceResult;
+  grok: ServiceResult;
 }
 
 function formatCountdown(iso: string): string {
@@ -48,39 +56,30 @@ function Bar({ percent }: { percent: number }) {
   );
 }
 
+function Metric({ window }: { window: UsageWindow }) {
+  return (
+    <div className="metric">
+      <div className="metric-label">
+        <span>{window.label}</span>
+        <span>{Math.round(window.percent)}% used</span>
+      </div>
+      <Bar percent={window.percent} />
+      {window.resets_at && (
+        <div className="resets">
+          <span>Resets in {formatCountdown(window.resets_at)}</span>
+          <span>{formatDateTime(window.resets_at)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Service({ name, result }: { name: string; result: ServiceResult }) {
   return (
     <div className="service">
       <div className="service-header">{name}</div>
       {result.status === "ok" ? (
-        <>
-          <div className="metric">
-            <div className="metric-label">
-              <span>5h limit</span>
-              <span>{Math.round(result.five_hour)}% used</span>
-            </div>
-            <Bar percent={result.five_hour} />
-            {result.five_hour_resets_at && (
-              <div className="resets">
-                <span>Resets in {formatCountdown(result.five_hour_resets_at)}</span>
-                <span>{formatDateTime(result.five_hour_resets_at)}</span>
-              </div>
-            )}
-          </div>
-          <div className="metric">
-            <div className="metric-label">
-              <span>Weekly limit</span>
-              <span>{Math.round(result.weekly)}% used</span>
-            </div>
-            <Bar percent={result.weekly} />
-            {result.weekly_resets_at && (
-              <div className="resets">
-                <span>Resets in {formatCountdown(result.weekly_resets_at)}</span>
-                <span>{formatDateTime(result.weekly_resets_at)}</span>
-              </div>
-            )}
-          </div>
-        </>
+        result.windows.map((w) => <Metric key={w.label} window={w} />)
       ) : result.status === "not_logged_in" ? (
         <div className="hint">{result.login_hint}</div>
       ) : (
@@ -110,6 +109,8 @@ export function App() {
     <div className="info-panel">
       <Service name="Claude Code" result={usage.claude} />
       <Service name="Codex CLI" result={usage.codex} />
+      <Service name="OpenCode Go" result={usage.opencode} />
+      <Service name="Grok" result={usage.grok} />
     </div>
   );
 }

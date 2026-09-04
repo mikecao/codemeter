@@ -13,12 +13,12 @@
     "windows": [
       {
         "title": "codemeter",
-        "width": 400,
-        "height": 380,
+        "width": 640,
+        "height": 440,
         "resizable": true,
         "fullscreen": false,
         "visible": false,
-      "theme": "Dark"
+        "theme": "Dark"
       }
     ],
     "security": {
