@@ -311,7 +311,10 @@ async fn fetch_claude_usage() -> ServiceResult {
 
     // Try with current token
     match claude_api_call(&creds.access_token).await {
-        Ok(body) => return ServiceResult::Ok(parse_claude_response(&body)),
+        Ok(body) => return match parse_claude_response(&body) {
+            Ok(data) => ServiceResult::Ok(data),
+            Err(message) => ServiceResult::Error { message },
+        },
         Err(status)
             if status == reqwest::StatusCode::UNAUTHORIZED
                 || status == reqwest::StatusCode::TOO_MANY_REQUESTS =>
@@ -342,28 +345,41 @@ async fn fetch_claude_usage() -> ServiceResult {
     );
 
     match claude_api_call(&token_resp.access_token).await {
-        Ok(body) => ServiceResult::Ok(parse_claude_response(&body)),
+        Ok(body) => match parse_claude_response(&body) {
+            Ok(data) => ServiceResult::Ok(data),
+            Err(message) => ServiceResult::Error { message },
+        },
         Err(e) => ServiceResult::Error {
             message: format!("API error: {}", e),
         },
     }
 }
 
-fn parse_claude_response(body: &serde_json::Value) -> UsageData {
-    UsageData {
-        windows: vec![
-            UsageWindow::new(
-                "5h limit",
-                body["five_hour"]["utilization"].as_f64().unwrap_or(0.0),
-                body["five_hour"]["resets_at"].as_str().map(String::from),
-            ),
-            UsageWindow::new(
-                "Weekly limit",
-                body["seven_day"]["utilization"].as_f64().unwrap_or(0.0),
-                body["seven_day"]["resets_at"].as_str().map(String::from),
-            ),
-        ],
+fn parse_claude_response(body: &serde_json::Value) -> Result<UsageData, String> {
+    // Windows are keyed by name; any of them may be null depending on plan/rollout,
+    // so only emit the ones that are actually present.
+    let windows: Vec<UsageWindow> = [
+        ("five_hour", "5h limit"),
+        ("seven_day", "Weekly limit"),
+        ("seven_day_opus", "Weekly limit (Opus)"),
+        ("seven_day_sonnet", "Weekly limit (Sonnet)"),
+    ]
+    .iter()
+    .map(|(k, label)| (&body[*k], *label))
+    .filter(|(w, _)| w.is_object())
+    .map(|(w, label)| {
+        UsageWindow::new(
+            label,
+            w["utilization"].as_f64().unwrap_or(0.0),
+            w["resets_at"].as_str().and_then(normalize_iso),
+        )
+    })
+    .collect();
+
+    if windows.is_empty() {
+        return Err("No usage windows in response".into());
     }
+    Ok(UsageData { windows })
 }
 
 // --- Helpers ---
@@ -545,23 +561,41 @@ async fn fetch_codex_usage() -> ServiceResult {
         }
     };
 
-    let primary = &body["rate_limit"]["primary_window"];
-    let secondary = &body["rate_limit"]["secondary_window"];
+    // Codex may omit either window (e.g. the hourly limit was temporarily removed),
+    // so label each one by its actual duration rather than by position.
+    let windows: Vec<UsageWindow> = ["primary_window", "secondary_window"]
+        .iter()
+        .map(|k| &body["rate_limit"][*k])
+        .filter(|w| w.is_object())
+        .map(|w| {
+            UsageWindow::new(
+                &window_label_from_seconds(w["limit_window_seconds"].as_u64()),
+                w["used_percent"].as_f64().unwrap_or(0.0),
+                w["reset_at"].as_u64().map(unix_to_iso),
+            )
+        })
+        .collect();
 
-    ServiceResult::Ok(UsageData {
-        windows: vec![
-            UsageWindow::new(
-                "5h limit",
-                primary["used_percent"].as_f64().unwrap_or(0.0),
-                primary["reset_at"].as_u64().map(unix_to_iso),
-            ),
-            UsageWindow::new(
-                "Weekly limit",
-                secondary["used_percent"].as_f64().unwrap_or(0.0),
-                secondary["reset_at"].as_u64().map(unix_to_iso),
-            ),
-        ],
-    })
+    if windows.is_empty() {
+        return ServiceResult::Error {
+            message: "No rate limit windows in response".into(),
+        };
+    }
+
+    ServiceResult::Ok(UsageData { windows })
+}
+
+/// Human label for a rate-limit window given its length in seconds.
+fn window_label_from_seconds(secs: Option<u64>) -> String {
+    const HOUR: u64 = 3600;
+    const DAY: u64 = 24 * HOUR;
+    match secs {
+        None => "Usage".into(),
+        Some(s) if s % (7 * DAY) == 0 && s / (7 * DAY) == 1 => "Weekly limit".into(),
+        Some(s) if s % DAY == 0 => format!("{}d limit", s / DAY),
+        Some(s) if s % HOUR == 0 => format!("{}h limit", s / HOUR),
+        Some(s) => format!("{}m limit", s / 60),
+    }
 }
 
 // --- OpenCode Go ---
