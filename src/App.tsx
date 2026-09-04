@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+
+// Must match .info-panel / grid values in style.css
+const CARD_MIN_WIDTH = 380;
+const GRID_GAP = 14;
+const PANEL_PADDING = 16;
+const MAX_COLS = 3;
 
 interface UsageWindow {
   label: string;
@@ -91,6 +98,34 @@ function Service({ name, result }: { name: string; result: ServiceResult }) {
 
 export function App() {
   const [usage, setUsage] = useState<AllUsage | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const sizedFor = useRef<string>("");
+
+  // Size the window to fit the cards whenever their shape changes
+  // (first load, or a service logging in/out). Manual resizes are left alone otherwise.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!usage || !panel) return;
+
+    const results = [usage.claude, usage.codex, usage.opencode, usage.grok];
+    const signature = results
+      .map((r) => (r.status === "ok" ? r.windows.length : r.status))
+      .join(",");
+    if (signature === sizedFor.current) return;
+    sizedFor.current = signature;
+
+    const cols = Math.min(MAX_COLS, Math.ceil(Math.sqrt(results.length)));
+    const width = cols * CARD_MIN_WIDTH + (cols - 1) * GRID_GAP + PANEL_PADDING * 2;
+
+    // Lay the panel out at the target width to measure the resulting height.
+    panel.style.width = `${width - PANEL_PADDING * 2}px`;
+    const height = panel.offsetHeight;
+    panel.style.width = "";
+
+    getCurrentWindow()
+      .setSize(new LogicalSize(width, height))
+      .catch(() => {});
+  }, [usage]);
 
   useEffect(() => {
     const fetch = () => {
@@ -106,7 +141,7 @@ export function App() {
   }
 
   return (
-    <div className="info-panel">
+    <div className="info-panel" ref={panelRef}>
       <Service name="Claude Code" result={usage.claude} />
       <Service name="Codex CLI" result={usage.codex} />
       <Service name="OpenCode Go" result={usage.opencode} />
