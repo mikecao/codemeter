@@ -63,7 +63,42 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "codemeter ${{ env.RELEASE_TAG }}"
-          releaseBody: "See the [README](https://github.com/${{ github.repository }}#readme) for details."
+          releaseBody: "Building release artifacts…"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  notes:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate and publish release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${RELEASE_TAG}"
+          else
+            RANGE="${RELEASE_TAG}"
+          fi
+          {
+            echo "## What's changed"
+            echo
+            git log --no-merges --reverse \
+              --pretty=format:'- %s' "$RANGE" \
+              | grep -viE '^- (Bump version|Trigger release|Merge )' || true
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo
+              echo "**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${RELEASE_TAG}"
+            fi
+          } > notes.md
+          cat notes.md
+          gh release edit "${RELEASE_TAG}" --notes-file notes.md

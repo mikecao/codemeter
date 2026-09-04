@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "codemeter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.codemeter.app",
   "build": {
     "frontendDist": "../dist",
@@ -18,9 +18,11 @@
         "resizable": true,
         "fullscreen": false,
         "visible": false,
+        "transparent": true,
         "theme": "Dark"
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }

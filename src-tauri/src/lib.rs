@@ -1003,6 +1003,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![get_usage])
         .setup(|app| {
+            // macOS: run as an accessory (menu bar / notification center only,
+            // no Dock icon and no app menu bar).
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -1013,6 +1018,12 @@ pub fn run() {
 
             // Hide the main window on startup
             let window = app.get_webview_window("main").unwrap();
+
+            // macOS: strip the title bar / traffic-light buttons so the window
+            // reads as a bare popup. Windows and Linux keep their normal frame.
+            #[cfg(target_os = "macos")]
+            window.set_decorations(false)?;
+
             window.hide()?;
 
             // Create system tray icon (embedded at compile time)

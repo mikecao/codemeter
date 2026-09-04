@@ -22,6 +22,23 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 14px;
+  box-sizing: border-box;
+}
+
+/* macOS: frameless transparent popup with rounded corners.
+   The window itself is transparent, so the panel paints the background
+   and clips it to a rounded rectangle. Windows/Linux keep the default
+   opaque, square, framed window. */
+html.macos,
+html.macos body {
+  background: transparent;
+}
+
+html.macos .info-panel {
+  min-height: 100vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
 .service {
