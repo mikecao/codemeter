@@ -118,13 +118,17 @@ export function App() {
     const width = cols * CARD_MIN_WIDTH + (cols - 1) * GRID_GAP + PANEL_PADDING * 2;
 
     // Lay the panel out at the target width to measure the resulting height.
-    panel.style.width = `${width - PANEL_PADDING * 2}px`;
-    const height = panel.offsetHeight;
+    // (.info-panel is border-box, and macOS pins min-height to the viewport,
+    // so override both while measuring.)
+    panel.style.width = `${width}px`;
+    panel.style.minHeight = "0";
+    const height = Math.ceil(panel.getBoundingClientRect().height);
     panel.style.width = "";
+    panel.style.minHeight = "";
 
     getCurrentWindow()
       .setSize(new LogicalSize(width, height))
-      .catch(() => {});
+      .catch((e) => console.error("setSize failed", e));
   }, [usage]);
 
   useEffect(() => {
