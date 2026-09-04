@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { ClaudeIcon, GrokIcon, OpenAIIcon, OpenCodeIcon } from "./icons";
 
 // Must match .info-panel / grid values in style.css
 const CARD_MIN_WIDTH = 380;
@@ -81,10 +82,21 @@ function Metric({ window }: { window: UsageWindow }) {
   );
 }
 
-function Service({ name, result }: { name: string; result: ServiceResult }) {
+function Service({
+  name,
+  icon,
+  result,
+}: {
+  name: string;
+  icon: ReactNode;
+  result: ServiceResult;
+}) {
   return (
     <div className="service">
-      <div className="service-header">{name}</div>
+      <div className="service-header">
+        {icon}
+        <span>{name}</span>
+      </div>
       {result.status === "ok" ? (
         result.windows.map((w) => <Metric key={w.label} window={w} />)
       ) : result.status === "not_logged_in" ? (
@@ -146,10 +158,10 @@ export function App() {
 
   return (
     <div className="info-panel" ref={panelRef}>
-      <Service name="Claude Code" result={usage.claude} />
-      <Service name="Codex CLI" result={usage.codex} />
-      <Service name="OpenCode Go" result={usage.opencode} />
-      <Service name="Grok" result={usage.grok} />
+      <Service name="Claude Code" icon={<ClaudeIcon />} result={usage.claude} />
+      <Service name="Codex CLI" icon={<OpenAIIcon />} result={usage.codex} />
+      <Service name="OpenCode Go" icon={<OpenCodeIcon />} result={usage.opencode} />
+      <Service name="Grok" icon={<GrokIcon />} result={usage.grok} />
     </div>
   );
 }
