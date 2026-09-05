@@ -82,6 +82,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Keep hand-written notes: only generate when the body is still the build placeholder.
+          CURRENT_BODY=$(gh release view "${RELEASE_TAG}" --json body -q .body 2>/dev/null || echo "")
+          if [ -n "$CURRENT_BODY" ] && [ "$CURRENT_BODY" != "Building release artifacts…" ]; then
+            echo "Release already has custom notes; skipping generation."
+            exit 0
+          fi
           PREV_TAG=$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
             RANGE="${PREV_TAG}..${RELEASE_TAG}"
