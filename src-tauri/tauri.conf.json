@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "codemeter",
-        "width": 806,
-        "height": 440,
+        "width": 810,
+        "height": 460,
         "resizable": true,
         "fullscreen": false,
         "visible": false,

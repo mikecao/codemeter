@@ -65,7 +65,7 @@ Codemeter reads your existing CLI credentials and queries the usage APIs directl
 - **OpenCode Go**: Reads the `opencode-go` API key from `~/.local/share/opencode/auth.json` (or `$XDG_DATA_HOME/opencode/auth.json`), calls `https://opencode.ai/zen/go/v1/usage`
 - **Grok**: Reads the OIDC session from `~/.grok/auth.json` (or `$GROK_HOME/auth.json`), calls the Grok CLI billing API. Expired sessions are refreshed via `auth.x.ai` and written back, using the same `auth.json.lock` advisory lock as the Grok CLI
 
-No separate login required. If a CLI is not installed or not logged in, the app shows a helpful message.
+No separate login required. CLIs that are not installed are hidden; installed-but-logged-out ones show a login hint.
 
 ## Tech stack
 

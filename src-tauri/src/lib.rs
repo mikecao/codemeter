@@ -41,6 +41,9 @@ pub enum ServiceResult {
     Ok(UsageData),
     #[serde(rename = "not_logged_in")]
     NotLoggedIn { login_hint: String },
+    /// The CLI's config directory doesn't exist, so it's presumably not installed.
+    #[serde(rename = "not_installed")]
+    NotInstalled,
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -302,6 +305,7 @@ async fn fetch_claude_usage() -> ServiceResult {
 
     let creds = match load_claude_creds(&home) {
         Some(creds) => creds,
+        None if !home.join(".claude").is_dir() => return ServiceResult::NotInstalled,
         None => {
             return ServiceResult::NotLoggedIn {
                 login_hint: "Run: claude login".into(),
@@ -492,7 +496,12 @@ async fn fetch_codex_usage() -> ServiceResult {
         }
     };
 
-    let auth_path = home.join(".codex").join("auth.json");
+    let codex_dir = home.join(".codex");
+    if !codex_dir.is_dir() {
+        return ServiceResult::NotInstalled;
+    }
+
+    let auth_path = codex_dir.join("auth.json");
     let auth_str = match fs::read_to_string(&auth_path) {
         Ok(s) => s,
         Err(_) => {
@@ -619,7 +628,12 @@ async fn fetch_opencode_usage() -> ServiceResult {
         }
     };
 
-    let auth: serde_json::Value = match fs::read_to_string(opencode_auth_path(&home))
+    let auth_path = opencode_auth_path(&home);
+    if !auth_path.parent().is_some_and(|d| d.is_dir()) {
+        return ServiceResult::NotInstalled;
+    }
+
+    let auth: serde_json::Value = match fs::read_to_string(&auth_path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
     {
@@ -964,6 +978,10 @@ async fn fetch_grok_usage() -> ServiceResult {
             }
         }
     };
+
+    if !auth_path.parent().is_some_and(|d| d.is_dir()) {
+        return ServiceResult::NotInstalled;
+    }
 
     let creds = match fs::read_to_string(&auth_path)
         .ok()
