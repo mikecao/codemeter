@@ -362,7 +362,7 @@ async fn fetch_claude_usage() -> ServiceResult {
 fn parse_claude_response(body: &serde_json::Value) -> Result<UsageData, String> {
     // Windows are keyed by name; any of them may be null depending on plan/rollout,
     // so only emit the ones that are actually present.
-    let windows: Vec<UsageWindow> = [
+    let mut windows: Vec<UsageWindow> = [
         ("five_hour", "5h limit"),
         ("seven_day", "Weekly limit"),
         ("seven_day_opus", "Weekly limit (Opus)"),
@@ -380,10 +380,42 @@ fn parse_claude_response(body: &serde_json::Value) -> Result<UsageData, String> 
     })
     .collect();
 
+    // Model-specific weekly limits (e.g. Fable) only appear in the `limits` array,
+    // as `weekly_scoped` entries whose scope names the model or surface.
+    if let Some(limits) = body["limits"].as_array() {
+        for limit in limits.iter().filter(|l| l["kind"] == "weekly_scoped") {
+            let Some(name) = scoped_limit_name(&limit["scope"]) else {
+                continue;
+            };
+            let label = format!("Weekly limit ({})", name);
+            if windows.iter().any(|w| w.label == label) {
+                continue;
+            }
+            windows.push(UsageWindow::new(
+                &label,
+                limit["percent"].as_f64().unwrap_or(0.0),
+                limit["resets_at"].as_str().and_then(normalize_iso),
+            ));
+        }
+    }
+
     if windows.is_empty() {
         return Err("No usage windows in response".into());
     }
     Ok(UsageData { windows })
+}
+
+/// Display name for a scoped limit: the model if present, otherwise the surface.
+fn scoped_limit_name(scope: &serde_json::Value) -> Option<String> {
+    ["model", "surface"].iter().find_map(|k| {
+        let v = &scope[*k];
+        v["display_name"]
+            .as_str()
+            .or_else(|| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    })
 }
 
 // --- Helpers ---
